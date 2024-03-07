@@ -127,3 +127,23 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+
+
+
+# custom
+
+# model
+model/
+
+# test results
+test_results/
+
+# custom images
+custom_images/
+
+# data
+data/
+
+# benchmarks
+benchmarks/
