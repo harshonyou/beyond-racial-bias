@@ -8,7 +8,7 @@ import numpy as np
 import datetime
 
 sys.path.append('.')
-from models.FLAME import FLAME, FLAMETex
+from models.FLAME import FLAME, TextureModel, FLAMETex
 from utils.renderer import Renderer
 from utils import util
 from utils.config import cfg
@@ -24,7 +24,7 @@ class PhotometricFitting(object):
         self.config = cfg
         self.device = device
         self.flame = FLAME(self.config).to(self.device)
-        self.flametex = FLAMETex(self.config).to(self.device)
+        self.flametex = FLAMETex(self.config, TextureModel.BALANCED_ALBEDO_TRUST).to(self.device)
 
         self._setup_renderer()
 

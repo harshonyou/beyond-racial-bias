@@ -4,6 +4,8 @@ Copyright (c) 2019, Soubhik Sanyal
 All rights reserved.
 """
 # Modified from smplx code for FLAME
+# Modified to include different texture models
+from enum import Enum, auto
 import torch
 import torch.nn as nn
 import numpy as np
@@ -216,29 +218,46 @@ class FLAME(nn.Module):
 
         return vertices, landmarks2d, landmarks3d
 
+class TextureModel(Enum):
+    """
+    Enum for the different texture models
 
+    Available Texture Models:
+        BFM: Baseline BFM (Basel Face Model) Texture Model
+        BALANCED_ALBEDO_TRUST: Balanced Albedo TRUST (Towards Racially Unbiased Skin Tone Estimation via Scene Disambiguation) Texture Model
+    """
+
+    BFM = auto()
+    BALANCED_ALBEDO_TRUST = auto()
 
 class FLAMETex(nn.Module):
     """
-    current FLAME texture are adapted from BFM Texture Model
+    FLAME texture are adapted from selected Texture Model
     """
 
-    def __init__(self, config):
+    def __init__(self, config, texture_model=TextureModel.BFM):
         super(FLAMETex, self).__init__()
+        if texture_model == TextureModel.BFM:
+            tex_space_path = config.bfm_tex_space_path
+        elif texture_model == TextureModel.BALANCED_ALBEDO_TRUST:
+            tex_space_path = config.balanced_albedo_tex_space_path
+        else:
+            raise ValueError("Unsupported texture model")
+
         tex_params = config.tex_params
-        tex_space = np.load(config.tex_space_path)
+        tex_space = np.load(tex_space_path)
         texture_mean = tex_space['mean'].reshape(1, -1)
-        texture_basis = tex_space['tex_dir'].reshape(-1, 200)
+        texture_basis = tex_space['tex_dir'].reshape(-1, tex_space['tex_dir'].shape[-1])
         num_components = texture_basis.shape[1]
-        texture_mean = torch.from_numpy(texture_mean).float()[None,...]
-        texture_basis = torch.from_numpy(texture_basis[:,:tex_params]).float()[None,...]
+        texture_mean = torch.from_numpy(texture_mean).float()[None, ...]
+        texture_basis = torch.from_numpy(texture_basis[:, :tex_params]).float()[None, ...]
         self.register_buffer('texture_mean', texture_mean)
         self.register_buffer('texture_basis', texture_basis)
 
     def forward(self, texcode):
-        texture = self.texture_mean + (self.texture_basis*texcode[:,None,:]).sum(-1)
-        texture = texture.reshape(texcode.shape[0], 512, 512, 3).permute(0,3,1,2)
+        texture = self.texture_mean + (self.texture_basis * texcode[:, None, :]).sum(-1)
+        texture = texture.reshape(texcode.shape[0], 512, 512, 3).permute(0, 3, 1, 2)
         texture = F.interpolate(texture, [256, 256])
-        texture = texture[:,[2,1,0], :,:]
+        texture = texture[:, [2, 1, 0], :, :]
         return texture
 
