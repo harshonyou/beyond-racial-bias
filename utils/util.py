@@ -345,25 +345,31 @@ def face_seg(img, net, cropped_size):
 
 def crop_img(ori_image, rect, cropped_size):
     l, t, r, b = rect
-    center_x = r - (r - l) // 2
-    center_y = b - (b - t) // 2
-    w = (r - l) * 1.2
-    h = (b - t) * 1.2
-    crop_size = max(w, h)
-    if crop_size > cropped_size:
-        crop_ly = int(max(0, center_y - crop_size // 2))
-        crop_lx = int(max(0, center_x - crop_size // 2))
-        crop_ly = int(min(ori_image.shape[0] - crop_size, crop_ly))
-        crop_lx = int(min(ori_image.shape[1] - crop_size, crop_lx))
-        crop_image = ori_image[crop_ly: int(crop_ly + crop_size), crop_lx: int(crop_lx + crop_size), :]
-    else:
+    # Correctly calculate the center of the rectangle
+    center_x = l + (r - l) // 2
+    center_y = t + (b - t) // 2
 
-        crop_ly = int(max(0, center_y - cropped_size // 2))
-        crop_lx = int(max(0, center_x - cropped_size // 2))
-        crop_ly = int(min(ori_image.shape[0] - cropped_size, crop_ly))
-        crop_lx = int(min(ori_image.shape[1] - cropped_size, crop_lx))
-        crop_image = ori_image[crop_ly: int(crop_ly + cropped_size), crop_lx: int(crop_lx + cropped_size), :]
-    new_rect = [l - crop_lx, t - crop_ly, r - crop_lx, b - crop_ly]
+    # Scale the rectangle size
+    w, h = (r - l) * 1.2, (b - t) * 1.2
+    crop_size = max(w, h)
+
+    # Ensure crop size does not exceed specified cropped size
+    crop_size = min(crop_size, cropped_size)
+
+    # Calculate crop coordinates, ensuring they are within the image boundaries
+    crop_lx = int(max(0, center_x - crop_size // 2))
+    crop_ly = int(max(0, center_y - crop_size // 2))
+    crop_lx = int(min(ori_image.shape[1] - crop_size, crop_lx))
+    crop_ly = int(min(ori_image.shape[0] - crop_size, crop_ly))
+
+    # Crop the image
+    crop_image = ori_image[crop_ly: int(crop_ly + crop_size), crop_lx: int(crop_lx + crop_size), :]
+
+    # Adjust the new_rect calculation
+    new_l, new_t = max(0, l - crop_lx), max(0, t - crop_ly)
+    new_r, new_b = new_l + (r - l), new_t + (b - t)
+    new_rect = [new_l, new_t, new_r, new_b]
+
     return crop_image, new_rect
 
 
