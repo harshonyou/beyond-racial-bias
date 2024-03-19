@@ -7,7 +7,7 @@ import torch.nn as nn
 import numpy as np
 import datetime
 sys.path.append('.')
-from models.FLAME import FLAME, FLAMETex
+from models.FLAME import FLAME, TextureModel, FLAMETex
 from models.face_seg_model import BiSeNet
 from utils.renderer import Renderer
 from utils import util
@@ -26,7 +26,7 @@ class PhotometricFitting(object):
         self.config = cfg
         self.device = device
         self.flame = FLAME(self.config).to(self.device)
-        self.flametex = FLAMETex(self.config).to(self.device)
+        self.flametex = FLAMETex(self.config, TextureModel.BALANCED_ALBEDO_TRUST).to(self.device)
 
         self._setup_renderer()
 
