@@ -6,6 +6,8 @@ import torch
 import numpy as np
 import argparse
 import csv
+from tqdm import tqdm
+from contextlib import redirect_stdout
 
 # Ensure the local directory is included in the Python path
 sys.path.append('.')
@@ -27,13 +29,10 @@ def process_image(image_path, output_filename, save_folder, device_name):
     # Prepare filenames for output
     save_name = f"{output_filename}.obj"
     save_video_name = f"{output_filename}.avi"
-    video_path = os.path.join(cfg.save_folder, save_video_name)
+    video_path = os.path.join(save_folder, save_video_name)
 
     # Create a video writer object
     video_writer = cv2.VideoWriter(video_path, cv2.VideoWriter_fourcc(*'MJPG'), 16, (cfg.image_size, cfg.image_size * 7))
-
-    # Ensure the save directory exists
-    util.check_mkdir(cfg.save_folder)
 
     # Initialize the fitting process
     fitting = PhotometricFitting(device=device_name)
@@ -128,7 +127,7 @@ if __name__ == '__main__':
     # Parse arguments
     args = parse_arguments()
 
-    # Use arguments
+    # Use arguments to set variables
     benchmark_root = args.benchmark_root
     save_folder = args.save_folder
     device_name = args.device_name
@@ -137,8 +136,14 @@ if __name__ == '__main__':
     output_path = os.path.join(save_folder, 'output_files')
     csv_path = os.path.join(save_folder, 'processed_images_log.csv')
 
+    # Initialize the tqdm progress bar
+    progress_bar = tqdm(total=batch_size, desc="Processing Images")
+
     # Load the mask for ITA calculation
     mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+
+    # Ensure the save directory exists
+    util.check_mkdir(output_path)
 
     # Initialize a counter for processed images
     processed_images = 0
@@ -147,6 +152,7 @@ if __name__ == '__main__':
     for subdir, dirs, files in os.walk(benchmark_root):
         for file in glob.glob(os.path.join(subdir, '*.png')):
             if processed_images >= batch_size:
+                progress_bar.close()
                 print(f"Batch limit of {batch_size} images reached. Exiting.")
                 break
 
@@ -160,10 +166,19 @@ if __name__ == '__main__':
                 print(f"Skipping already processed image: {output_filename}")
                 continue
 
-            print(f"Processing {file} as {output_filename} with ground truth {ground_truth_image_path} and generated {generated_image_path}")
+            print(f"Processing {file} as {output_filename}")
 
-            # Process the current image
-            process_image(file, output_filename, output_path, device_name)
+            # Determine the path for the log file for this image
+            log_file_path = os.path.join(output_path, f"{output_filename}.log")
+
+            # Redirect stdout to the log file for this image
+            with open(log_file_path, 'w') as log_file, redirect_stdout(log_file):
+                # Process the current image
+                process_image(file, output_filename, output_path, device_name)
+
+                # After processing, manually print a success message to the original stdout
+                sys.stdout = sys.__stdout__
+                print(f"Successfully processed {file}, log saved to {log_file_path}")
 
             # Load and mask the ground truth and generated images
             ground_truth_image = load_image(ground_truth_image_path)
@@ -183,8 +198,14 @@ if __name__ == '__main__':
             # Log the ITA calculation results and skin type to the CSV
             log_ita_to_csv(csv_path, output_filename, ita_gt, ita_gen, ita_error, skin_type)
 
+            # Update logging and progress bar
+            print(f"Processed image {processed_images + 1}/{batch_size}: {file}")
+            progress_bar.update(1)
+
             # Increment the processed images counter
             processed_images += 1
 
         if processed_images >= batch_size:
             break
+
+    progress_bar.close()  # Ensure the progress bar is closed properly
