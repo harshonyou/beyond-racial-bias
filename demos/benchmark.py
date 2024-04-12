@@ -9,6 +9,11 @@ import csv
 from tqdm import tqdm
 from contextlib import redirect_stdout
 
+import torch
+from torch.functional import F
+import PIL
+from kornia.color import rgb_to_lab
+
 # Ensure the local directory is included in the Python path
 sys.path.append('.')
 
@@ -23,6 +28,9 @@ from facial_alignment.detection import FAN_landmark
 
 # Import fitting module
 from demos.wj_fitting import PhotometricFitting
+
+uv_size = 256
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 def process_image(image_path, output_filename, save_folder, device_name):
     """Processes a given image and performs photometric fitting."""
@@ -54,6 +62,13 @@ def load_image(path):
     """Loads an image and converts it to L*a*b color space."""
     return cv2.cvtColor(cv2.imread(path), cv2.COLOR_BGR2Lab)
 
+def load_image2(path):
+    image = PIL.Image.open(path).convert('RGB')
+    image = np.asarray(image) / 255.
+    image = torch.from_numpy(image[None, :, :, :]).permute(0,3,1,2).to(device)
+    image = F.interpolate(image, (uv_size, uv_size))
+    return image
+
 def apply_mask(image, mask):
     """Applies a mask to the given image."""
     return cv2.bitwise_and(image, image, mask=mask)
@@ -64,20 +79,29 @@ def calculate_ita(lab_image):
     ita = (np.arctan((L - 50) / b) * 180 / np.pi)[b != 0]  # Avoid division by zero
     return np.mean(ita)
 
+def calculate_ita2(img, mask):
+    img = rgb_to_lab(img)
+
+    ITA = (img[:,0,:,:] - 50) / (img[:,2,:,:] + 1e-8)
+    ITA = torch.atan(ITA) * 180 / torch.pi
+    ITA = ITA[mask]
+
+    return torch.mean(ITA)
+
 def get_skin_type(ita_value):
     """Determines the skin type based on the ITA value."""
     if ita_value > 55:
-        return 'Very light'
+        return 'Very light (I)'
     elif ita_value > 41:
-        return 'Light'
+        return 'Light (II)'
     elif ita_value > 28:
-        return 'Intermediate'
+        return 'Intermediate (III)'
     elif ita_value > 10:
-        return 'Tan'
+        return 'Tan (IV)'
     elif ita_value > -30:
-        return 'Brown'
+        return 'Brown (V)'
     else:
-        return 'Dark'
+        return 'Dark (VI)'
 
 def log_ita_to_csv(csv_path, image_name, ita_gt, ita_gen, ita_error, skin_type):
     """Logs the ITA values, error, and skin type for an image to a CSV file."""
@@ -134,13 +158,17 @@ if __name__ == '__main__':
     mask_path = args.mask_path
     batch_size = args.batch_size
     output_path = os.path.join(save_folder, 'output_files')
-    csv_path = os.path.join(save_folder, 'processed_images_log.csv')
+    csv_path = os.path.join(save_folder, '__processed_images_log.csv')
 
     # Initialize the tqdm progress bar
     progress_bar = tqdm(total=batch_size, desc="Processing Images")
 
     # Load the mask for ITA calculation
     mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+
+    fair_mask = cv2.resize(cv2.imread(mask_path), (uv_size, uv_size)).astype(np.float32) / 255.
+    fair_mask = torch.from_numpy(fair_mask[None, :, :, :]).permute(0,3,1,2).to(device)
+    fair_mask = fair_mask[:,0,:,:] == 1.0
 
     # Ensure the save directory exists
     util.check_mkdir(output_path)
@@ -171,7 +199,7 @@ if __name__ == '__main__':
             # Determine the path for the log file for this image
             log_file_path = os.path.join(output_path, f"{output_filename}.log")
 
-            # Redirect stdout to the log file for this image
+            # # Redirect stdout to the log file for this image
             with open(log_file_path, 'w') as log_file, redirect_stdout(log_file):
                 # Process the current image
                 process_image(file, output_filename, output_path, device_name)
@@ -181,14 +209,22 @@ if __name__ == '__main__':
                 print(f"Successfully processed {file}, log saved to {log_file_path}")
 
             # Load and mask the ground truth and generated images
-            ground_truth_image = load_image(ground_truth_image_path)
-            generated_image = load_image(generated_image_path)
-            masked_gt = apply_mask(ground_truth_image, mask)
-            masked_gen = apply_mask(generated_image, mask)
+            # ground_truth_image = load_image(ground_truth_image_path)
+            # generated_image = load_image(generated_image_path)
+            # masked_gt = apply_mask(ground_truth_image, mask)
+            # masked_gen = apply_mask(generated_image, mask)
+
+            ground_truth_image = load_image2(ground_truth_image_path)
+            generated_image = load_image2(generated_image_path)
 
             # Calculate and print ITA error
-            ita_gt = calculate_ita(masked_gt)
-            ita_gen = calculate_ita(masked_gen)
+            # ita_gt = calculate_ita(masked_gt)
+            # ita_gen = calculate_ita(masked_gen)
+            # ita_error = abs(ita_gt - ita_gen)
+            # print(f"ITA Error for {output_filename}: {ita_error}")
+
+            ita_gt = calculate_ita2(ground_truth_image, fair_mask)
+            ita_gen = calculate_ita2(generated_image, fair_mask)
             ita_error = abs(ita_gt - ita_gen)
             print(f"ITA Error for {output_filename}: {ita_error}")
 
@@ -196,7 +232,7 @@ if __name__ == '__main__':
             skin_type = get_skin_type(ita_gt)
 
             # Log the ITA calculation results and skin type to the CSV
-            log_ita_to_csv(csv_path, output_filename, ita_gt, ita_gen, ita_error, skin_type)
+            log_ita_to_csv(csv_path, output_filename, ita_gt.item(), ita_gen.item(), ita_error.item(), skin_type)
 
             # Update logging and progress bar
             print(f"Processed image {processed_images + 1}/{batch_size}: {file}")
