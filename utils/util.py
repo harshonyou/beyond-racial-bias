@@ -395,3 +395,37 @@ def draw_train_process(title, iters, loss, label_loss):
     plt.legend()
     plt.grid()
     plt.show()
+
+def plot_parameter_heatmap(param_values, param_name, max_displayed_params=10):
+    """
+    Plots a heatmap of parameter values over iterations, adjusting for single dimension issues.
+
+    :param param_values: List of numpy arrays containing parameter values at different iterations.
+    :param param_name: Name of the parameter for the title of the plot.
+    :param max_displayed_params: Maximum number of parameter components to display.
+    """
+    # Concatenate the values to form a 2D array: rows are iterations, columns are parameter components.
+    data = np.stack(param_values)
+
+    # Squeeze the data to remove the singleton dimension if necessary.
+    data = np.squeeze(data)
+
+    # If the parameter has more components than max_displayed_params, truncate it.
+    if data.ndim > 1 and data.shape[1] > max_displayed_params:
+        data = data[:, :max_displayed_params]
+
+    fig, ax = plt.subplots(figsize=(10, max(10, data.shape[0] / 5)))  # Adjust the size as necessary.
+    cax = ax.imshow(data, aspect='auto', cmap='viridis')
+
+    ax.set_title(f'{param_name} Values Over Iterations')
+    ax.set_xlabel('Parameter Component')
+    ax.set_ylabel('Iteration')
+
+    # Adding a color bar to interpret values
+    fig.colorbar(cax, ax=ax, orientation='vertical', label='Value')
+
+    plt.show()
+
+def plot_all_parameter_heatmaps(param_values_dict, max_displayed_params=10):
+    for param_name, values in param_values_dict.items():
+        plot_parameter_heatmap(values, param_name, max_displayed_params)
