@@ -65,8 +65,16 @@ class Pytorch3dRasterizer(nn.Module):
             perspective_correct=raster_settings.perspective_correct,
         )
 
-        vismask = (pix_to_face > -1).float()
-        D = attributes.shape[-1]
+        # pix_to_face: (N, H, W, K) LongTensor giving the indices of the nearest face to each pixel.
+        # zbuf: (N, H, W, K) FloatTensor giving the depth of the nearest face at each pixel.
+        # bary_coords: (N, H, W, K, 3) FloatTensor giving the barycentric coordinates of the
+        #             pixel within the face. This means that bary_coords[i, y, x, k] is the
+        #             weight of the kth vertex of the pix_to_face[i, y, x, k]th face.
+        # dists: (N, H, W, K) FloatTensor giving the euclidean distance of the pixel to the face.
+
+        # Attribute Interpolation
+        vismask = (pix_to_face > -1).float() # [N, H, W, K]
+        D = attributes.shape[-1] # 3 for uv, 3 for normal, 3 for vertex, 3 for face normal
         attributes = attributes.clone()
         attributes = attributes.view(attributes.shape[0] * attributes.shape[1], 3, attributes.shape[-1])
         N, H, W, K, _ = bary_coords.shape
