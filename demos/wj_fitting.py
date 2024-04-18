@@ -55,6 +55,15 @@ class PhotometricFitting(object):
         all_train_iter = 0
         all_train_iters = []
         photometric_loss = []
+        param_values_dict = {
+            'shape': [],
+            'exp': [],
+            'pose': [],
+            'cam': [],
+            'tex': [],
+            'lights': []
+        }
+
         for k in range(cfg.max_iter):
             losses = {}
             vertices, landmarks2d, landmarks3d = self.flame(shape_params=shape, expression_params=exp, pose_params=pose)
@@ -94,6 +103,13 @@ class PhotometricFitting(object):
                 all_train_iter += 10
                 all_train_iters.append(all_train_iter)
                 photometric_loss.append(losses['photometric_texture'])
+                param_values_dict['shape'].append(shape.detach().cpu().numpy())
+                param_values_dict['exp'].append(exp.detach().cpu().numpy())
+                param_values_dict['pose'].append(pose.detach().cpu().numpy())
+                param_values_dict['cam'].append(cam.detach().cpu().numpy())
+                param_values_dict['tex'].append(tex.detach().cpu().numpy())
+                param_values_dict['lights'].append(lights.detach().cpu().numpy())
+
                 print(loss_info)
 
                 grids = {}
@@ -129,6 +145,8 @@ class PhotometricFitting(object):
             'lit': lights.detach().cpu().numpy()
         }
 
+
+        # util.plot_all_parameter_heatmaps(param_values_dict, 100)
 
         # util.draw_train_process("training", all_train_iters, photometric_loss, 'photometric loss')
         # np.save("./test_results/model.npy", single_params)
