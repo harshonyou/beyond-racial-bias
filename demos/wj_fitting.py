@@ -6,6 +6,8 @@ import torch.nn.functional as F
 import torch.nn as nn
 import numpy as np
 import datetime
+import distutils.version
+from torch.utils.tensorboard import SummaryWriter
 sys.path.append('.')
 from models.FLAME import FLAME, TextureModel, FLAMETex
 from models.face_seg_model import BiSeNet
@@ -29,9 +31,13 @@ class PhotometricFitting(object):
         self.flametex = FLAMETex(self.config, TextureModel.BALANCED_ALBEDO_TRUST).to(self.device)
 
         self._setup_renderer()
+        self._setup_tensorboard()
 
     def _setup_renderer(self):
         self.render = Renderer(cfg.image_size, obj_filename=cfg.mesh_file).to(self.device)
+
+    def _setup_tensorboard(self):
+        self.writer = SummaryWriter('runs/photometric_fitting_experiment_' + datetime.datetime.now().strftime('%Y%m%d-%H%M%S'))
 
     def optimize(self, images, landmarks, image_masks, video_writer):
         bz = images.shape[0]
@@ -110,6 +116,20 @@ class PhotometricFitting(object):
                 param_values_dict['tex'].append(tex.detach().cpu().numpy())
                 param_values_dict['lights'].append(lights.detach().cpu().numpy())
 
+                self.writer.add_scalar('Loss/landmark', losses['landmark'].item(), k)
+                self.writer.add_scalar('Loss/shape_reg', losses['shape_reg'].item(), k)
+                self.writer.add_scalar('Loss/expression_reg', losses['expression_reg'].item(), k)
+                self.writer.add_scalar('Loss/pose_reg', losses['pose_reg'].item(), k)
+                self.writer.add_scalar('Loss/photometric_texture', losses['photometric_texture'].item(), k)
+                self.writer.add_scalar('Loss/all_loss', all_loss.item(), k)
+
+                self.writer.add_histogram('Parameters/shape', shape, k)
+                self.writer.add_histogram('Parameters/exp', exp, k)
+                self.writer.add_histogram('Parameters/pose', pose, k)
+                self.writer.add_histogram('Parameters/cam', cam, k)
+                self.writer.add_histogram('Parameters/tex', tex, k)
+                self.writer.add_histogram('Parameters/lights', lights, k)
+
                 print(loss_info)
 
                 grids = {}
@@ -145,6 +165,7 @@ class PhotometricFitting(object):
             'lit': lights.detach().cpu().numpy()
         }
 
+        self.writer.flush()
 
         # util.plot_all_parameter_heatmaps(param_values_dict, 100)
 
@@ -215,5 +236,6 @@ if __name__ == '__main__':
     seg_net = BiSeNet(n_classes=cfg.seg_class).cuda()
     seg_net.load_state_dict(torch.load(cfg.face_seg_model))
     seg_net.eval()
+
     fitting.run(img, seg_net, face_detect, face_landmark, cfg.rect_thresh, save_name, video_writer,
                 cfg.save_folder)
