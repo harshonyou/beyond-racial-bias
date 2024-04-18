@@ -66,6 +66,10 @@ class PhotometricFitting(object):
             landmarks3d[..., 1:] = - landmarks3d[..., 1:]
             losses['landmark'] = util.l2_distance(landmarks2d[:, :, :2], gt_landmark[:, :, :2])
 
+            losses['shape_reg'] = (torch.sum(shape ** 2) / 2) * cfg.w_shape_reg  # *1e-4
+            losses['expression_reg'] = (torch.sum(exp ** 2) / 2) * cfg.w_expr_reg  # *1e-4
+            losses['pose_reg'] = (torch.sum(pose ** 2) / 2) * cfg.w_pose_reg
+
             # render
             albedos = self.flametex(tex) / 255.
             ops = self.render(vertices, trans_vertices, albedos, lights)
