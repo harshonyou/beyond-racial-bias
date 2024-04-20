@@ -19,6 +19,10 @@ cfg.flame_lmk_embedding_path = os.path.join(cfg.root_dir, 'data', 'landmark_embe
 cfg.mesh_file = os.path.join(cfg.root_dir, 'data', 'head_template_mesh.obj')
 cfg.save_folder = os.path.join(cfg.root_dir, 'test_results')
 
+cfg.reni_latent_dim_size = 100
+cfg.reni_env_map_width = 64
+cfg.nerfstudio_ckpt_step = 50000
+
 cfg.camera_params = 3
 cfg.shape_params = 100
 cfg.expression_params = 50

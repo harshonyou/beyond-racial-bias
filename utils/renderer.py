@@ -12,6 +12,9 @@ from pytorch3d.io import load_obj
 from pytorch3d.renderer.mesh import rasterize_meshes
 from utils import util
 
+from reni_plus_plus.model_components.shaders import LambertianShader
+from reni_plus_plus.utils.colourspace import linear_to_sRGB
+
 
 class Pytorch3dRasterizer(nn.Module):
     """
@@ -92,10 +95,11 @@ class Pytorch3dRasterizer(nn.Module):
 
 
 class Renderer(nn.Module):
-    def __init__(self, image_size, obj_filename, uv_size=256):
+    def __init__(self, image_size, obj_filename, uv_size=256, light_directions=None):
         super(Renderer, self).__init__()
         self.image_size = image_size
         self.uv_size = uv_size
+        specular_term = 0.5 # FIXME: HARDCODED?
 
         verts, faces, aux = load_obj(obj_filename)
         uvcoords = aux.verts_uvs[None, ...]  # (N, V, 2)
@@ -122,19 +126,25 @@ class Renderer(nn.Module):
         face_colors = util.face_vertices(colors, faces)
         self.register_buffer('face_colors', face_colors)
 
-        ## lighting
-        pi = np.pi
-        constant_factor = torch.tensor(
-            [1 / np.sqrt(4 * pi), ((2 * pi) / 3) * (np.sqrt(3 / (4 * pi))), ((2 * pi) / 3) * (np.sqrt(3 / (4 * pi))), \
-             ((2 * pi) / 3) * (np.sqrt(3 / (4 * pi))), (pi / 4) * (3) * (np.sqrt(5 / (12 * pi))),
-             (pi / 4) * (3) * (np.sqrt(5 / (12 * pi))), \
-             (pi / 4) * (3) * (np.sqrt(5 / (12 * pi))), (pi / 4) * (3 / 2) * (np.sqrt(5 / (12 * pi))),
-             (pi / 4) * (1 / 2) * (np.sqrt(5 / (4 * pi)))])
-        self.register_buffer('constant_factor', constant_factor)
+        # RENI feature flag
+        if light_directions is not None:
+            self.light_directions = light_directions
+            self.albedo = 1 - (torch.ones((image_size * image_size, 3)) * specular_term) # N x 3
+            self.lambertian_shader = LambertianShader()
+        else:
+            ## lighting
+            pi = np.pi
+            constant_factor = torch.tensor(
+                [1 / np.sqrt(4 * pi), ((2 * pi) / 3) * (np.sqrt(3 / (4 * pi))), ((2 * pi) / 3) * (np.sqrt(3 / (4 * pi))), \
+                ((2 * pi) / 3) * (np.sqrt(3 / (4 * pi))), (pi / 4) * (3) * (np.sqrt(5 / (12 * pi))),
+                (pi / 4) * (3) * (np.sqrt(5 / (12 * pi))), \
+                (pi / 4) * (3) * (np.sqrt(5 / (12 * pi))), (pi / 4) * (3 / 2) * (np.sqrt(5 / (12 * pi))),
+                (pi / 4) * (1 / 2) * (np.sqrt(5 / (4 * pi)))])
+            self.register_buffer('constant_factor', constant_factor)
 
 
 
-    def forward(self, vertices, transformed_vertices, albedos, lights=None, light_type='point'):
+    def forward(self, vertices, transformed_vertices, albedos, lights=None, light_type='point', illumination=None):
         '''
         lihgts:
             spherical homarnic: [N, 9(shcoeff), 3(rgb)]
@@ -194,6 +204,56 @@ class Renderer(nn.Module):
                                                                                                                   4, 2,
                                                                                                                   3)
                     shading_images = shading_images.mean(1)
+            images = albedo_images * shading_images
+        elif illumination is not None:
+            # images = albedo_images
+            # shading_images = images.detach() * 0.
+
+            normal_images = rendering[:, 9:12, :, :].detach()
+            normal_images = normal_images.squeeze(0).permute(1, 2, 0) # C, H, W -> H, W, C
+            normal_images = normal_images[..., [0,2,1]] # RGB -> BGR
+
+            # Clip the values to be between 0 and 1
+            normal_images[normal_images < 0] = 0
+            normal_images[normal_images > 1] = 1
+
+            normal_images = normal_images / torch.norm(normal_images, dim=2, keepdim=True) # Normalize the vectors
+
+            mask = ~torch.isnan(normal_images)[..., 0] # Mask out the NaN values
+            normal_images[~mask] = 0 # Set the NaN values to 0
+
+
+            # # normal_images = normal_images / 255.0
+            # normal_images = normal_images.squeeze(0).permute(1, 2, 0)
+            # normal_images = normal_images[..., [0,2,1]]
+            # normal_images = normal_images / torch.norm(normal_images, dim=2, keepdim=True)
+
+            # mask = ~torch.isnan(normal_images)[..., 0]
+            # normal_images[~mask] = 0
+
+            normal_images = normal_images.reshape(-1, 3).cpu()
+
+            mask = mask.reshape(-1)
+
+            predicted_render, _ = self.lambertian_shader(albedo=self.albedo[mask], # 50176, 3
+                                            normals=normal_images[mask], # 1, 3, 224, 224
+                                            light_directions=self.light_directions[mask], # 50176, 2048, 3
+                                            light_colors=illumination[mask], # 1, 2048, 3
+                                            detach_normals=True) # K x 3
+            # shading_images = linear_to_sRGB(predicted_render.reshape(self.image_size, self.image_size, 3), use_quantile=True).permute(2, 0, 1).unsqueeze(0)
+
+            # # shading_images = shading_images.to(albedo_images.device)
+
+            shading_images = torch.zeros_like(self.albedo)
+            shading_images[mask] = predicted_render
+
+            shading_images = linear_to_sRGB(shading_images.reshape(self.image_size, self.image_size, 3), use_quantile=True).permute(2, 0, 1).unsqueeze(0)
+
+            mask = ~torch.isnan(shading_images)[..., 0]
+            shading_images[~mask] = 0
+
+            shading_images = shading_images.to(albedo_images.device)
+
             images = albedo_images * shading_images
         else:
             images = albedo_images
