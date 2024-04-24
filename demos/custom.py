@@ -25,6 +25,7 @@ from reni_plus_plus.field_components.field_heads import RENIFieldHeadNames
 
 torch.backends.cudnn.benchmark = True
 
+torch.autograd.set_detect_anomaly(True)
 
 class PhotometricFitting(object):
     def __init__(self, device='cuda'):
@@ -57,8 +58,8 @@ class PhotometricFitting(object):
         cam[:, 0] = 5.
         cam = nn.Parameter(cam.float().to(self.device))
 
-        latent_codes = nn.Parameter(torch.zeros((bz, cfg.reni_latent_dim_size, 3), requires_grad=True, device=self.device))
-        scale = nn.Parameter(torch.ones((bz), requires_grad=True, device=self.device))
+        latent_codes = nn.Parameter(torch.zeros(bz, cfg.reni_latent_dim_size, 3).float().to(self.device))
+        scale = nn.Parameter(torch.zeros(bz).float().to(self.device))
 
         # lights = {'latent_codes': latent_codes, 'scale': scale}
 
@@ -110,6 +111,8 @@ class PhotometricFitting(object):
             losses['shape_reg'] = (torch.sum(shape ** 2) / 2) * cfg.w_shape_reg  # *1e-4
             losses['expression_reg'] = (torch.sum(exp ** 2) / 2) * cfg.w_expr_reg  # *1e-4
             losses['pose_reg'] = (torch.sum(pose ** 2) / 2) * cfg.w_pose_reg
+            # losses['tex_reg'] = (torch.sum(tex ** 2) / 2) * 1e-4
+            # losses['latent_code_reg'] = (torch.sum(latent_codes ** 2) / 2) * 1e-4
 
             # render
             albedos = self.flametex(tex) / 255.
@@ -164,7 +167,6 @@ class PhotometricFitting(object):
                 self.writer.add_histogram('Parameters/tex', tex, k)
                 self.writer.add_histogram('Parameters/latent_codes', latent_codes, k)
                 self.writer.add_histogram('Parameters/scale', scale, k)
-                self.writer.add_histogram('Parameters/lights', lights, k)
 
                 print(loss_info)
 
@@ -202,6 +204,8 @@ class PhotometricFitting(object):
             'verts': trans_vertices.detach().cpu().numpy(),
             'albedos': albedos.detach().cpu().numpy(),
             'tex': tex.detach().cpu().numpy(),
+            'latent_codes': latent_codes.detach().cpu().numpy(),
+            'scale': scale.detach().cpu().numpy(),
         }
 
         self.writer.flush()

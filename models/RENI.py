@@ -6,6 +6,8 @@ import yaml
 
 from reni_plus_plus.illumination_fields.reni_illumination_field import RENIFieldConfig
 from reni_plus_plus.model_components.illumination_samplers import EquirectangularSamplerConfig
+from reni_plus_plus.field_components.field_heads import RENIFieldHeadNames
+from reni_plus_plus.utils.colourspace import linear_to_sRGB
 
 class RENI:
     # def __init__(self, latent_dim_size=100, ckpt_step=50000):
@@ -19,7 +21,9 @@ class RENI:
         self.ckpt_path = self.base_path / 'nerfstudio_models' / f'step-{self.ckpt_step}.ckpt'
         self.config = self.load_config()
         self.model = self.load_model()
-        self.sampler = EquirectangularSampler(config.reni_env_map_width, False, False, config.image_size * config.image_size)
+        self.pixel_num = config.image_size * config.image_size
+        self.width = config.reni_env_map_width
+        self.sampler = EquirectangularSampler(self.width, False, False, self.pixel_num)
 
     def __call__(self, rotation, latent_codes, scale):
         return self.use_model(rotation, latent_codes, scale)
@@ -86,9 +90,15 @@ class RENI:
         return model
 
     def use_model(self, rotation, latent_codes, scale):
-        z = latent_codes.repeat(self.sampler.num_rays, 1, 1)  # [D, latent_dim, 3]
-        s = scale.repeat(self.sampler.num_rays) # [D]
-        return self.model(ray_samples=self.sampler.get_ray_samples(), rotation=rotation, latent_codes=z, scale=s)
+        z = latent_codes.repeat(self.sampler.get_num_rays(), 1, 1)  # [D, latent_dim, 3]
+        s = scale.repeat(self.sampler.get_num_rays()) # [D]
+        reni_output = self.model(ray_samples=self.sampler.get_ray_samples(), rotation=rotation, latent_codes=z, scale=s)
+        predicted_illumination = reni_output[RENIFieldHeadNames.RGB.value]
+        predicted_illumination = self.model.unnormalise(predicted_illumination)
+        predicted_illumination = linear_to_sRGB(predicted_illumination, use_quantile=True)
+
+        # predicted_illumination = predicted_illumination.unsqueeze(0).repeat(self.pixel_num, 1, 1)
+        return predicted_illumination
 
     def to(self, device):
         self.model = self.model.to(device)
@@ -98,6 +108,11 @@ class RENI:
     def unnormalise(self, tensor):
         return self.model.unnormalise(tensor)
 
+    def get_light_directions(self):
+        return self.sampler.get_light_directions()
+
+    def visualize_illumination(self, illumination):
+        return illumination.reshape(self.width // 2, self.width, 3)
 
 class EquirectangularSampler:
     def __init__(self, width, apply_random_rotation, remove_lower_hemisphere, pixel_num=4096):
@@ -112,7 +127,7 @@ class EquirectangularSampler:
         self.light_directions = self.generate_light_directions(pixel_num)
 
     def __call__(self):
-        return self.get_ray_samples()
+        return self.get_ray_samples(), self.get_light_directions(), self.get_num_rays()
 
     def setup(self):
         direction_sampler = EquirectangularSamplerConfig(
@@ -134,6 +149,9 @@ class EquirectangularSampler:
 
     def get_ray_samples(self):
         return self.ray_samples
+
+    def get_light_directions(self):
+        return self.light_directions
 
     def get_num_rays(self):
         return self.ray_samples.directions.shape[0]

@@ -99,7 +99,6 @@ class Renderer(nn.Module):
         super(Renderer, self).__init__()
         self.image_size = image_size
         self.uv_size = uv_size
-        specular_term = 0.5 # FIXME: HARDCODED?
 
         verts, faces, aux = load_obj(obj_filename)
         uvcoords = aux.verts_uvs[None, ...]  # (N, V, 2)
@@ -129,7 +128,6 @@ class Renderer(nn.Module):
         # RENI feature flag
         if light_directions is not None:
             self.light_directions = light_directions
-            self.albedo = 1 - (torch.ones((image_size * image_size, 3)) * specular_term) # N x 3
             self.lambertian_shader = LambertianShader()
         else:
             ## lighting
@@ -206,55 +204,59 @@ class Renderer(nn.Module):
                     shading_images = shading_images.mean(1)
             images = albedo_images * shading_images
         elif illumination is not None:
-            # images = albedo_images
-            # shading_images = images.detach() * 0.
-
             normal_images = rendering[:, 9:12, :, :].detach()
+            # albedo_images
+            normal_images = normal_images.cpu()
             normal_images = normal_images.squeeze(0).permute(1, 2, 0) # C, H, W -> H, W, C
             normal_images = normal_images[..., [0,2,1]] # RGB -> BGR
+
+            og_shape = normal_images.shape
 
             # Clip the values to be between 0 and 1
             normal_images[normal_images < 0] = 0
             normal_images[normal_images > 1] = 1
+            # normal_images = normal_images.clip(0, 1)
 
             normal_images = normal_images / torch.norm(normal_images, dim=2, keepdim=True) # Normalize the vectors
 
             mask = ~torch.isnan(normal_images)[..., 0] # Mask out the NaN values
             normal_images[~mask] = 0 # Set the NaN values to 0
 
+            mask = mask.reshape(-1) # N = H x W
+            normals_subet = normal_images.reshape(-1, 3)[mask] # K x 3
+            del normal_images
 
-            # # normal_images = normal_images / 255.0
-            # normal_images = normal_images.squeeze(0).permute(1, 2, 0)
-            # normal_images = normal_images[..., [0,2,1]]
-            # normal_images = normal_images / torch.norm(normal_images, dim=2, keepdim=True)
+            albedo_image = albedo_images.cpu()
+            albedo_image = albedo_image.squeeze(0).permute(1, 2, 0) # C, H, W -> H, W, C
+            albedo_subset = albedo_image.reshape(-1, 3)[mask] # K x 3
+            del albedo_image
 
-            # mask = ~torch.isnan(normal_images)[..., 0]
-            # normal_images[~mask] = 0
+            light_directions_subset = self.light_directions[mask]
+            illumination = illumination.unsqueeze(0).repeat(normals_subet.shape[0], 1, 1)
 
-            normal_images = normal_images.reshape(-1, 3).cpu()
+            predicted_render, _ = self.lambertian_shader(albedo=albedo_subset,
+                                        normals=normals_subet,
+                                        light_directions=light_directions_subset,
+                                        light_colors=illumination,
+                                        detach_normals=True)
 
-            mask = mask.reshape(-1)
+            del albedo_subset, normals_subet, light_directions_subset, illumination
 
-            predicted_render, _ = self.lambertian_shader(albedo=self.albedo[mask], # 50176, 3
-                                            normals=normal_images[mask], # 1, 3, 224, 224
-                                            light_directions=self.light_directions[mask], # 50176, 2048, 3
-                                            light_colors=illumination[mask], # 1, 2048, 3
-                                            detach_normals=True) # K x 3
-            # shading_images = linear_to_sRGB(predicted_render.reshape(self.image_size, self.image_size, 3), use_quantile=True).permute(2, 0, 1).unsqueeze(0)
+            # images = torch.zeros(og_shape[0] * og_shape[1], 3)
+            # images[mask] = predicted_albedo
+            # images = linear_to_sRGB(images.reshape(og_shape[0], og_shape[1], 3), use_quantile=True)
+            # images = images.permute(2, 0, 1).unsqueeze(0)
+            # images = images.to(alpha_images.device)
 
-            # # shading_images = shading_images.to(albedo_images.device)
+            # shading_images = predicted_render
 
-            shading_images = torch.zeros_like(self.albedo)
+            shading_images = torch.zeros(og_shape[0] * og_shape[1], 3)
             shading_images[mask] = predicted_render
-
-            shading_images = linear_to_sRGB(shading_images.reshape(self.image_size, self.image_size, 3), use_quantile=True).permute(2, 0, 1).unsqueeze(0)
-
-            mask = ~torch.isnan(shading_images)[..., 0]
-            shading_images[~mask] = 0
-
+            shading_images = linear_to_sRGB(shading_images.reshape(og_shape[0], og_shape[1], 3), use_quantile=True)
+            shading_images = shading_images.permute(2, 0, 1).unsqueeze(0)
             shading_images = shading_images.to(albedo_images.device)
-
             images = albedo_images * shading_images
+
         else:
             images = albedo_images
             shading_images = images.detach() * 0.
