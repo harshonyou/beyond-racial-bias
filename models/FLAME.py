@@ -81,8 +81,10 @@ class FLAME(nn.Module):
         lmk_embeddings = lmk_embeddings[()]
         self.register_buffer('lmk_faces_idx', torch.tensor(lmk_embeddings['static_lmk_faces_idx'], dtype=torch.long))
         self.register_buffer('lmk_bary_coords', torch.tensor(lmk_embeddings['static_lmk_bary_coords'], dtype=self.dtype))
-        self.register_buffer('dynamic_lmk_faces_idx', torch.tensor(lmk_embeddings['dynamic_lmk_faces_idx'], dtype=torch.long))
-        self.register_buffer('dynamic_lmk_bary_coords', torch.tensor(lmk_embeddings['dynamic_lmk_bary_coords'], dtype=self.dtype))
+        # self.register_buffer('dynamic_lmk_faces_idx', torch.tensor(lmk_embeddings['dynamic_lmk_faces_idx'], dtype=torch.long))
+        # self.register_buffer('dynamic_lmk_bary_coords', torch.tensor(lmk_embeddings['dynamic_lmk_bary_coords'], dtype=self.dtype))
+        self.register_buffer('dynamic_lmk_faces_idx', lmk_embeddings['dynamic_lmk_faces_idx'].clone().detach().to(dtype=torch.long))
+        self.register_buffer('dynamic_lmk_bary_coords', lmk_embeddings['dynamic_lmk_bary_coords'].clone().detach().to(dtype=self.dtype))
         self.register_buffer('full_lmk_faces_idx', torch.tensor(lmk_embeddings['full_lmk_faces_idx'], dtype=torch.long))
         self.register_buffer('full_lmk_bary_coords', torch.tensor(lmk_embeddings['full_lmk_bary_coords'], dtype=self.dtype))
 
