@@ -147,3 +147,18 @@ data/
 
 # benchmarks
 benchmarks/
+
+# runs
+runs/
+
+# tensors
+tensors/
+
+# imgs
+imgs/
+
+# benchmarks_results/*/**
+benchmarks_results/*/**
+
+# .vscode
+.vscode/
