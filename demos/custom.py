@@ -179,12 +179,16 @@ class PhotometricFitting(object):
                     util.tensor_vis_landmarks(images[visind], landmarks3d[visind]))
                 grids['albedoimage'] = torchvision.utils.make_grid(
                     (ops['albedo_images'])[visind].detach().cpu())
+                illumination_image = F.interpolate(self.reni.visualize_illumination(predicted_illumination).permute(2, 0, 1).unsqueeze(0), size=(224, 224), mode='bilinear', align_corners=False).squeeze(0)
+                grids['illumination'] = torchvision.utils.make_grid(
+                    (illumination_image).detach().cpu())
                 grids['render'] = torchvision.utils.make_grid(predicted_images[visind].detach().float().cpu())
                 shape_images = self.render.render_shape(vertices, trans_vertices, images)
                 grids['shape'] = torchvision.utils.make_grid(
                     F.interpolate(shape_images[visind], [224, 224])).detach().float().cpu()
 
                 # grids['tex'] = torchvision.utils.make_grid(F.interpolate(albedos[visind], [224, 224])).detach().cpu()
+                del illumination_image, shape_images
                 grid = torch.cat(list(grids.values()), 1)
                 grid_image = (grid.numpy().transpose(1, 2, 0).copy() * 255)[:, :, [2, 1, 0]]
                 grid_image = np.minimum(np.maximum(grid_image, 0), 255).astype(np.uint8)
@@ -260,7 +264,7 @@ if __name__ == '__main__':
     save_video_name = os.path.split(image_path)[1].split(".")[0] + '.avi'
     video_writer = cv2.VideoWriter(os.path.join(cfg.save_folder, save_video_name),
                                    cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'), 16,
-                                   (cfg.image_size, cfg.image_size * 7))
+                                   (cfg.image_size, cfg.image_size * 8))
     util.check_mkdir(cfg.save_folder)
     fitting = PhotometricFitting(device=device_name)
     img = cv2.imread(image_path)
