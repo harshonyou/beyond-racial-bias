@@ -95,7 +95,7 @@ class RENI:
         reni_output = self.model(ray_samples=self.sampler.get_ray_samples(), rotation=rotation, latent_codes=z, scale=s)
         predicted_illumination = reni_output[RENIFieldHeadNames.RGB.value]
         predicted_illumination = self.model.unnormalise(predicted_illumination)
-        predicted_illumination = linear_to_sRGB(predicted_illumination, use_quantile=True)
+        # predicted_illumination = linear_to_sRGB(predicted_illumination, use_quantile=True)
 
         # predicted_illumination = predicted_illumination.unsqueeze(0).repeat(self.pixel_num, 1, 1)
         return predicted_illumination
@@ -112,6 +112,10 @@ class RENI:
         return self.sampler.get_light_directions()
 
     def visualize_illumination(self, illumination):
+        # return illumination.reshape(self.width // 2, self.width, 3)
+
+        # illumination = self.model.unnormalise(illumination)
+        illumination = linear_to_sRGB(illumination, use_quantile=True)
         return illumination.reshape(self.width // 2, self.width, 3)
 
 class EquirectangularSampler:
