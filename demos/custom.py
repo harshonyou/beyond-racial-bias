@@ -30,9 +30,6 @@ torch.autograd.set_detect_anomaly(True)
 
 class PhotometricFitting(object):
     def __init__(self, device='cuda'):
-        # self.batch_size = cfg.batch_size
-        # self.image_size = cfg.image_size
-        # self.cropped_size = cfg.cropped_size
         self.config = cfg
         self.device = device
         self.flame = FLAME(self.config).to(self.device)
@@ -59,68 +56,31 @@ class PhotometricFitting(object):
         cam[:, 0] = 5.
         cam = nn.Parameter(cam.float().to(self.device))
 
-        # latent_codes = nn.Parameter(torch.zeros(bz, cfg.reni_latent_dim_size, 3).float().to(self.device))
         scale = nn.Parameter(torch.zeros(bz).float().to(self.device))
 
         latent_codes = nn.Parameter(torch.zeros(bz, cfg.reni_latent_dim_size, 3).float().to(self.device))
 
-        # mask = latent_codes > 0.75
-        # latent_codes.data[mask] = 1
-        # mask = latent_codes < 0.25
-        # latent_codes.data[mask] = 0
-
-        # e_opt = torch.optim.Adam(
-        #     [shape, exp, pose, cam, tex, latent_codes, scale],
-        #     lr=cfg.e_lr,
-        #     weight_decay=cfg.e_wd
-        # )
-        # Configuration for learning rates
-        # albedo_lr = cfg.e_lr * 0.25  # Assuming you want to increase the learning rate for albedo by 10x
-        albedo_lr = cfg.e_lr * 1 #* 0.25 # 0.125  # 18 I
-        default_lr = cfg.e_lr * 1.5  # Original learning rate for other parameters
-        latent_lr = cfg.e_lr * 0.125 # 0.025 #0.01  # Half the original learning rate for latent codes
+        albedo_lr = cfg.e_lr * 1 # Learning rate for albedo and pose
+        default_lr = cfg.e_lr * 1.5  # Learning rate for shape, expression, cam
+        latent_lr = cfg.e_lr * 0.125 # Learning rate for latent codes and scale
 
         e_opt = torch.optim.Adam([
             {'params': [shape, exp, cam], 'lr': default_lr, 'weight_decay': cfg.e_wd, 'initial_lr': default_lr},
-            {'params': [pose, tex], 'lr': albedo_lr, 'weight_decay': cfg.e_wd, 'initial_lr': albedo_lr},  # Higher learning rate for albedo
-            {'params': [scale, latent_codes], 'lr': latent_lr, 'weight_decay': cfg.e_wd, 'initial_lr': latent_lr}  # Lower learning rate for latent codes
+            {'params': [pose, tex], 'lr': albedo_lr, 'weight_decay': cfg.e_wd, 'initial_lr': albedo_lr},
+            {'params': [scale, latent_codes], 'lr': latent_lr, 'weight_decay': cfg.e_wd, 'initial_lr': latent_lr}
         ])
 
-        # s_opt = torch.optim.lr_scheduler.ExponentialLR(e_opt, gamma=0.95)
-        # Define custom decay rates for each group
-        # decay_rates = [0.99, 0.97, 0.95]  # 6 VI, 30ish I
-        # intervals = [100, 250, 50]
-
-        # 26 I
-        # decay_rates = [0.99, 0.90, 0.95]  # For example, slower decay for tex, faster for latent_codes
-        # intervals = [100, 250, 50]
-
-        decay_rates = [1, 1, 1]  # For example, slower decay for tex, faster for latent_codes
-        intervals = [100, 100, 100]
+        decay_rates = [1, 1, 1]  # Decay rates for each group
+        intervals = [100, 100, 100] # Intervals for each group
 
         rigid_mode = True
 
-        # Example of phase settings
-        # phase_settings = [
-        #     (500, [1.0,     0.0,    0.0]),  # Phase 1: High LR for albedo, low for illumination
-        #     (500, [0.25,    1.0,    0.1]),  # Phase 2: Low LR for albedo, high for illumination
-        #     (250, [0.25,    0.1,    1.0]),  # Phase 3: Repeat Phase 1 settings
-        #     (250, [0.25,    1.0,    0.1]),  # Phase 4: Repeat Phase 2 settings
-        #     (500, [0.125,   0.5,    0.5])  # Final Phase: High LR for both
-        # ]
         phase_settings = [
-            (500, [1.0,     0.0,    0.0]),  # Phase 1: High LR for albedo, low for illumination
-            (250, [0.0,     1.0,    0.0]),  # Phase 2: Low LR for albedo, high for illumination
-            (1500, [1.0,     1.0,    1.0]),  # Phase 2: Low LR for albedo, high for illumination
+            (500, [1.0,     0.0,    0.0]),  # Phase 1: Active: shape, exp, cam; Inactive: pose, tex, latent_codes, scale
+            (250, [0.0,     1.0,    0.0]),  # Phase 2: Active: pose, tex; Inactive: shape, exp, cam, latent_codes, scale
+            (1500, [1.0,     1.0,    1.0]), # Phase 3: Active: shape, exp, cam, pose, tex, latent_codes, scale
         ]
 
-        # phase_settings = [
-        #     (1000, [1.0,     1.0,    1.0]),  # Phase 1: High LR for albedo, low for illumination
-        # ]
-
-        # Create the custom scheduler
-        # s_opt = CustomExponentialLR(e_opt, decay_rates)
-        # s_opt = CustomGroupLR(e_opt, decay_rates, intervals)
         s_opt = CustomGroupLR(e_opt, phase_settings)
 
         gt_landmark = landmarks
@@ -139,14 +99,6 @@ class PhotometricFitting(object):
             'scale': [],
         }
 
-        # specular_term = 0.5
-        # nums = cfg.image_size * cfg.image_size
-
-        # albedo = 1 - (torch.ones((nums, 3)) * specular_term) # N x 3
-        # albedo_subset = albedo[image_masks] # K x 3
-        # del albedo
-
-
         for k in range(cfg.max_iter + 500): # cfg.max_iter
             losses = {}
 
@@ -162,8 +114,6 @@ class PhotometricFitting(object):
             losses['shape_reg'] = (torch.sum(shape ** 2) / 2) * cfg.w_shape_reg  # *1e-4
             losses['expression_reg'] = (torch.sum(exp ** 2) / 2) * cfg.w_expr_reg  # *1e-4
             losses['pose_reg'] = (torch.sum(pose ** 2) / 2) * cfg.w_pose_reg
-            # losses['tex_reg'] = (torch.sum(tex ** 2) / 2) * 1e-4
-            # losses['latent_code_reg'] = (torch.sum(latent_codes ** 2) / 2) * 1e-4
 
             if rigid_mode:
                 losses['photometric_texture'] = torch.tensor(0.0)  # Set as a zero tensor
@@ -366,8 +316,6 @@ if __name__ == '__main__':
     util.check_mkdir(cfg.save_folder)
     fitting = PhotometricFitting(device=device_name)
     img = cv2.imread(image_path)
-    # padding_size = 800
-    # img_padded = cv2.copyMakeBorder(img, padding_size, padding_size, padding_size, padding_size, cv2.BORDER_CONSTANT, value=0)
 
     face_detect = detector.SFDDetector(device_name, cfg.rect_model_path)
     face_landmark = FAN_landmark.FANLandmarks(device_name, cfg.landmark_model_path, cfg.face_detect_type)
