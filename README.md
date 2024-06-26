@@ -4,6 +4,8 @@ This repository hosts the source code and accompanying documentation for the dis
 
 ## Project Overview
 
+![overview](docs/overview.png)
+
 This project addresses the critical challenge of racial bias in 3D face reconstruction, which is an issue of both technical and ethical significance. Our work aims to develop a more equitable and accurate method for 3D facial reconstruction by integrating a learned illumination prior, which is trained independently from any face model. This approach seeks to mitigate the biases inherent in traditional 3D Morphable Models (3DMMs) that often fail to represent diverse facial features accurately under various lighting conditions.
 
 ## Motivation
