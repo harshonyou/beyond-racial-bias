@@ -302,11 +302,34 @@ class PhotometricFitting(object):
         #     axs[i].axis('off')
         # plt.show()
 
-        single_params = self.optimize(images, landmarks, image_masks, video_writer)
+        params = self.optimize(images, landmarks, image_masks, video_writer)
+
+        save_file = os.path.join(savefolder, save_name)
 
         # save single_params to a file
         # np.save(os.path.join(savefolder, save_name), single_params)
-        np.savez(os.path.join(savefolder, save_name), **single_params)
+        np.savez(save_file, **params)
+
+        for n in range(len(bboxes)):
+            shape = torch.from_numpy(params['shape'][n:n+1]).float().to(self.device)
+            exp = torch.from_numpy(params['exp'][n:n+1]).float().to(self.device)
+            pose = torch.from_numpy(params['pose'][n:n+1]).float().to(self.device)
+            cam = torch.from_numpy(params['cam'][n:n+1]).float().to(self.device)
+            tex = torch.from_numpy(params['tex'][n:n+1]).float().to(self.device)
+
+            vertices, _, _ = self.flame(shape_params=shape, expression_params=exp, pose_params=pose)
+            trans_vertices = util.batch_orth_proj(vertices, cam)
+            trans_vertices[..., 1:] = - trans_vertices[..., 1:]
+
+            albedos = self.flametex(tex) / 255.
+
+            filename = f'{save_file}_{n}.obj'
+
+            self.render.save_obj(
+                filename=filename,
+                vertices=trans_vertices[0],
+                textures=albedos[0]
+            )
 
         # Release the VideoWriter
         video_writer.release()
