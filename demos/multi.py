@@ -151,17 +151,17 @@ class PhotometricFitting(object):
                 grids = {}
                 visind = torch.arange(num_faces)  # Visualize all faces
 
-                grids['images'] = torchvision.utils.make_grid(images[visind], nrow=num_faces).detach().cpu()
+                grids['images'] = torchvision.utils.make_grid(images[visind], nrow=num_faces, padding=0).detach().cpu()
                 grids['landmarks_gt'] = torchvision.utils.make_grid(
-                    util.tensor_vis_landmarks(images[visind], landmarks[visind]), nrow=num_faces)
+                    util.tensor_vis_landmarks(images[visind], landmarks[visind]), nrow=num_faces, padding=0)
                 grids['landmarks2d'] = torchvision.utils.make_grid(
-                    util.tensor_vis_landmarks(images[visind], torch.cat(all_landmarks2d, dim=0)), nrow=num_faces)
+                    util.tensor_vis_landmarks(images[visind], torch.cat(all_landmarks2d, dim=0)), nrow=num_faces, padding=0)
                 grids['landmarks3d'] = torchvision.utils.make_grid(
-                    util.tensor_vis_landmarks(images[visind], torch.cat(all_landmarks3d, dim=0)), nrow=num_faces)
+                    util.tensor_vis_landmarks(images[visind], torch.cat(all_landmarks3d, dim=0)), nrow=num_faces, padding=0)
 
                 shape_images = self.render.render_shape(torch.cat(all_vertices, dim=0), torch.cat(all_trans_vertices, dim=0), images)
                 grids['shape'] = torchvision.utils.make_grid(
-                    F.interpolate(shape_images[visind], [224, 224]), nrow=num_faces).detach().float().cpu()
+                    F.interpolate(shape_images[visind], [224, 224]), nrow=num_faces, padding=0).detach().float().cpu()
 
                 # Log the grids to TensorBoard
                 self.writer.add_image('Images/Original', grids['images'], k)
@@ -192,6 +192,7 @@ class PhotometricFitting(object):
                 for key in ['images', 'landmarks_gt', 'landmarks2d', 'landmarks3d', 'shape']:
                     grid = grids[key].numpy().transpose((1, 2, 0))
                     grid = (grid * 255).astype(np.uint8)
+                    grid = cv2.cvtColor(grid, cv2.COLOR_RGB2BGR)
                     frame[current_y:current_y + grid.shape[0], :, :] = grid
                     current_y += grid.shape[0]
 
