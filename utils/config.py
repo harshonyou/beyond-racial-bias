@@ -17,7 +17,7 @@ cfg.face_seg_model = os.path.join(cfg.root_dir, 'model', 'face_seg.pth')
 cfg.landmark_model_path = os.path.join(cfg.root_dir, 'model', '2DFAN4-11f355bf06.pth.tar')
 cfg.flame_lmk_embedding_path = os.path.join(cfg.root_dir, 'data', 'landmark_embedding.npy')
 cfg.mesh_file = os.path.join(cfg.root_dir, 'data', 'head_template_mesh.obj')
-cfg.save_folder = os.path.join(cfg.root_dir, 'test_results')
+cfg.save_folder = os.path.join(cfg.root_dir, '_test_results')
 
 cfg.reni_latent_dim_size = 100
 cfg.reni_env_map_width = 64
@@ -41,6 +41,7 @@ cfg.w_lmks = 1
 cfg.max_iter = 2000
 cfg.w_shape_reg = 1e-4
 cfg.w_expr_reg = 1e-4
+cfg.w_tex_reg = 1e-4
 cfg.w_pose_reg = 0
 
 
