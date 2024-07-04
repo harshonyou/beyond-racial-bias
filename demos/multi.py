@@ -263,17 +263,6 @@ class PhotometricFitting(object):
             print("Error: Could not open VideoWriter")
             exit()
 
-
-        # Create dummy data and write to video
-        for i in range(100):  # Create 100 frames
-            # Create a dummy image with a changing color
-            dummy_image = np.zeros((frame_size[1], frame_size[0], 3), dtype=np.uint8)
-            color = (i % 256, (i * 2) % 256, (i * 3) % 256)  # Changing color for demonstration
-            dummy_image[:] = color  # Fill image with the color
-
-            # Write the frame to the video
-            video_writer.write(dummy_image)
-
         # Debug lines to visualize the images
         # Convert tensor to numpy array and rearrange dimensions for plotting
         # images_np = images.cpu().numpy()
