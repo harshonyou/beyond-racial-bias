@@ -128,7 +128,7 @@ class Renderer(nn.Module):
         # RENI feature flag
         if light_directions is not None:
             self.light_directions = light_directions
-            self.lambertian_shader = LambertianShader()
+            self.lambertian_shader = LambertianShader("cuda")
         else:
             ## lighting
             pi = np.pi
@@ -142,7 +142,7 @@ class Renderer(nn.Module):
 
 
 
-    def forward(self, vertices, transformed_vertices, albedos, lights=None, light_type='point', illumination=None):
+    def forward(self, vertices, transformed_vertices, albedos, lights=None, light_type='point', illumination=None, test=False):
         '''
         lihgts:
             spherical homarnic: [N, 9(shcoeff), 3(rgb)]
@@ -177,6 +177,10 @@ class Renderer(nn.Module):
         # remove inner mouth region
         transformed_normal_map = rendering[:, 3:6, :, :].detach()
         pos_mask = (transformed_normal_map[:, 2:, :, :] < -0.05).float()
+
+        if test:
+            normal_images = rendering[:, 9:12, :, :].detach()
+            return normal_images, albedo_images
 
         # shading
         if lights is not None:
@@ -234,7 +238,7 @@ class Renderer(nn.Module):
             light_directions_subset = self.light_directions[mask]
             illumination = illumination.unsqueeze(0).repeat(normals_subet.shape[0], 1, 1)
 
-            predicted_render, _ = self.lambertian_shader(albedo=albedo_subset,
+            _, predicted_render = self.lambertian_shader(albedo=albedo_subset,
                                         normals=normals_subet,
                                         light_directions=light_directions_subset,
                                         light_colors=illumination,
@@ -250,12 +254,12 @@ class Renderer(nn.Module):
 
             # shading_images = predicted_render
 
-            shading_images = torch.zeros(og_shape[0] * og_shape[1], 3)
+            shading_images = torch.zeros(og_shape[0] * og_shape[1], 3).to(predicted_render.device)
             shading_images[mask] = predicted_render
             shading_images = linear_to_sRGB(shading_images.reshape(og_shape[0], og_shape[1], 3), use_quantile=True)
             shading_images = shading_images.permute(2, 0, 1).unsqueeze(0)
             shading_images = shading_images.to(albedo_images.device)
-            images = albedo_images * shading_images
+            images = shading_images * albedo_images
 
         else:
             images = albedo_images
@@ -268,7 +272,8 @@ class Renderer(nn.Module):
             'pos_mask': pos_mask,
             'shading_images': shading_images,
             'grid': grid,
-            'normals': normals
+            'normals': normals,
+            'normal_images': rendering[:, 9:12, :, :].detach(),
         }
 
         return outputs
