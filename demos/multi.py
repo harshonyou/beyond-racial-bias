@@ -172,29 +172,47 @@ class PhotometricFitting(object):
 
 
                 if non_rigid_mode:
-                    albedos = torchvision.utils.make_grid(torch.cat(all_albedos, dim=0), nrow=num_faces).detach().cpu()
-                    albedo_renders = torchvision.utils.make_grid(torch.cat(all_albedo_renders, dim=0), nrow=num_faces).detach().cpu()
-                    renders = torchvision.utils.make_grid(torch.cat(all_face_renders, dim=0), nrow=num_faces).detach().cpu()
-                    illumination_map = self.reni.visualize_illumination(predicted_illumination).permute(2, 0, 1).detach().cpu()
+                    grids['albedos'] = F.interpolate(
+                        torchvision.utils.make_grid(torch.cat(all_albedos, dim=0), nrow=num_faces, padding=0).unsqueeze(0),
+                        size=(grids['images'].shape[1], grids['images'].shape[2]), mode='bilinear', align_corners=False
+                    ).squeeze().detach().cpu()
+                    grids['albedo_renders'] = F.interpolate(
+                        torchvision.utils.make_grid(torch.cat(all_albedo_renders, dim=0), nrow=num_faces, padding=0).unsqueeze(0),
+                        size=(grids['images'].shape[1], grids['images'].shape[2]), mode='bilinear', align_corners=False
+                    ).squeeze().detach().cpu()
+                    grids['renders'] = F.interpolate(
+                        torchvision.utils.make_grid(torch.cat(all_face_renders, dim=0), nrow=num_faces, padding=0).unsqueeze(0),
+                        size=(grids['images'].shape[1], grids['images'].shape[2]), mode='bilinear', align_corners=False
+                    ).squeeze().detach().cpu()
+                    # illumination_map = self.reni.visualize_illumination(predicted_illumination).permute(2, 0, 1).detach().cpu()
+                    grids['illumination'] = F.interpolate(
+                        self.reni.visualize_illumination(predicted_illumination).permute(2, 0, 1).unsqueeze(0),
+                        size=(grids['images'].shape[1], grids['images'].shape[2]),
+                        mode='bilinear',
+                        align_corners=False
+                    ).squeeze().detach().cpu()
 
-                    self.writer.add_image('Images/Albedo', albedos, k)
-                    self.writer.add_image('Images/Albedo_Render', albedo_renders, k)
-                    self.writer.add_image('Images/Render', renders, k)
-                    self.writer.add_image('Images/Illumination', illumination_map, k)
+                    self.writer.add_image('Images/Albedo', grids['albedos'], k)
+                    self.writer.add_image('Images/Albedo_Render', grids['albedo_renders'], k)
+                    self.writer.add_image('Images/Render', grids['renders'], k)
+                    self.writer.add_image('Images/Illumination', grids['illumination'], k)
 
+                grid_keys = ['images', 'landmarks_gt', 'landmarks2d', 'landmarks3d', 'shape', 'albedos', 'albedo_renders', 'renders', 'illumination']
 
                 # Calculate frame dimensions for vertical stacking
                 frame_width = grids['images'].shape[2]
-                frame_height = sum(grid.shape[1] for grid in grids.values())
+                # frame_height = sum(grid.shape[1] for grid in grids.values())
+                frame_height = grids['images'].shape[1] * len(grid_keys)
                 frame = np.zeros((frame_height, frame_width, 3), dtype=np.uint8)
 
                 current_y = 0
-                for key in ['images', 'landmarks_gt', 'landmarks2d', 'landmarks3d', 'shape']:
-                    grid = grids[key].numpy().transpose((1, 2, 0))
-                    grid = (grid * 255).astype(np.uint8)
-                    grid = cv2.cvtColor(grid, cv2.COLOR_RGB2BGR)
-                    frame[current_y:current_y + grid.shape[0], :, :] = grid
-                    current_y += grid.shape[0]
+                for key in grid_keys:
+                    if key in grids:
+                        grid = grids[key].numpy().transpose((1, 2, 0))
+                        grid = (grid * 255).astype(np.uint8)
+                        grid = cv2.cvtColor(grid, cv2.COLOR_RGB2BGR)
+                        frame[current_y:current_y + grid.shape[0], :, :] = grid
+                        current_y += grid.shape[0]
 
                 video_writer.write(frame)
 
@@ -251,7 +269,7 @@ class PhotometricFitting(object):
         # Video writer setup for saving the optimization process
         util.check_mkdir(savefolder)
         save_video_name = save_name + '.avi'
-        frame_size = (cfg.image_size * 3, cfg.image_size * 5)
+        frame_size = (cfg.image_size * len(bboxes), cfg.image_size * 9)
         video_writer = cv2.VideoWriter(
             os.path.join(savefolder, save_video_name),
             cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'),
