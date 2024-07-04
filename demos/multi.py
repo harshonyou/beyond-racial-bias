@@ -311,12 +311,12 @@ class PhotometricFitting(object):
         # np.save(os.path.join(savefolder, save_name), single_params)
         np.savez(save_file, **params)
 
-        for n in range(len(bboxes)):
-            shape = torch.from_numpy(params['shape'][n:n+1]).float().to(self.device)
-            exp = torch.from_numpy(params['exp'][n:n+1]).float().to(self.device)
-            pose = torch.from_numpy(params['pose'][n:n+1]).float().to(self.device)
-            cam = torch.from_numpy(params['cam'][n:n+1]).float().to(self.device)
-            tex = torch.from_numpy(params['tex'][n:n+1]).float().to(self.device)
+        for idx in range(len(bboxes)):
+            shape = torch.from_numpy(params['shape'][idx:idx+1]).float().to(self.device)
+            exp = torch.from_numpy(params['exp'][idx:idx+1]).float().to(self.device)
+            pose = torch.from_numpy(params['pose'][idx:idx+1]).float().to(self.device)
+            cam = torch.from_numpy(params['cam'][idx:idx+1]).float().to(self.device)
+            tex = torch.from_numpy(params['tex'][idx:idx+1]).float().to(self.device)
 
             vertices, _, _ = self.flame(shape_params=shape, expression_params=exp, pose_params=pose)
             trans_vertices = util.batch_orth_proj(vertices, cam)
@@ -324,7 +324,12 @@ class PhotometricFitting(object):
 
             albedos = self.flametex(tex) / 255.
 
-            filename = f'{save_file}_{n}.obj'
+            filename = f'{save_file}_{idx}.obj'
+
+            img = images[idx].detach().cpu().numpy().transpose(1, 2, 0)
+            img = (img * 255).astype(np.uint8)
+
+            cv2.imwrite(os.path.join(savefolder, f"{save_file}_img_{idx}.png"), cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
 
             self.render.save_obj(
                 filename=filename,
