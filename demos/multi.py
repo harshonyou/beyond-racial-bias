@@ -332,6 +332,15 @@ class PhotometricFitting(object):
                 textures=albedos[0]
             )
 
+        illumination = self.reni(rotation=None, latent_codes=torch.from_numpy(params['latent_codes']).float().to(self.device), scale=torch.from_numpy(params['scale']).float().to(self.device))
+        illumination_map = F.interpolate(
+            self.reni.visualize_illumination(illumination).permute(2, 0, 1).unsqueeze(0),
+            size=(cfg.image_size, cfg.image_size*2),
+            mode='bilinear',
+            align_corners=False
+        ).squeeze().detach().cpu().numpy().transpose(1, 2, 0)
+        cv2.imwrite(os.path.join(savefolder, f"{save_file}_map.png"), cv2.cvtColor(illumination_map, cv2.COLOR_RGB2BGR) * 255)
+
         # Release the VideoWriter
         video_writer.release()
 
