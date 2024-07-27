@@ -111,12 +111,18 @@ class RENI:
     def get_light_directions(self):
         return self.sampler.get_light_directions()
 
-    def visualize_illumination(self, illumination):
+    def visualize_illumination(self, illumination, width=None):
         # return illumination.reshape(self.width // 2, self.width, 3)
 
         # illumination = self.model.unnormalise(illumination)
         illumination = linear_to_sRGB(illumination, use_quantile=True)
-        return illumination.reshape(self.width // 2, self.width, 3)
+        # illumination = linear_to_sRGB(illumination)
+        if width is not None:
+            illumination = illumination.reshape(width // 2, width, 3)
+        else:
+            illumination = illumination.reshape(self.width // 2, self.width, 3)
+
+        return illumination
 
 class EquirectangularSampler:
     def __init__(self, width, apply_random_rotation, remove_lower_hemisphere, pixel_num=4096):
