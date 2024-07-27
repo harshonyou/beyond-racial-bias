@@ -64,7 +64,7 @@ class PhotometricFitting(object):
 
         # Learning rate configurations as before
         # albedo_lr, default_lr, latent_lr = cfg.e_lr, cfg.e_lr * 1.5, cfg.e_lr * 0.125
-        albedo_lr, default_lr, latent_lr = cfg.e_lr, cfg.e_lr, cfg.e_lr * 0.5
+        albedo_lr, default_lr, latent_lr = cfg.e_lr, cfg.e_lr, cfg.e_lr #* 0.5
         e_opt = torch.optim.Adam([
             {'params': [shape, exp, cam], 'lr': default_lr, 'weight_decay': cfg.e_wd, 'initial_lr': default_lr},
             {'params': [pose, tex], 'lr': albedo_lr, 'weight_decay': cfg.e_wd, 'initial_lr': albedo_lr},
@@ -73,12 +73,12 @@ class PhotometricFitting(object):
 
         # Custom learning rate scheduler
         s_opt = CustomGroupLR(e_opt, [
-            (700, [1.0, 0.0, 0.0]),
+            (1000, [1.0, 0.0, 0.0]),
             # (300, [0.0, 1.0, 0.0]),
-            (1500, [1.0, 1.0, 1.0]),
+            (2000, [1.0, 1.0, 1.0]),
         ])
 
-        for k in range(2000):
+        for k in range(3000):
             e_opt.zero_grad()
 
             # Loss computation per face
@@ -87,7 +87,7 @@ class PhotometricFitting(object):
             all_face_renders, all_albedo_renders, all_albedos = [], [], []
             skip = (k + 1) % 50 != 0  # We skip detailed computation except every 50 iterations
             logging = (k + 1) % 10 == 0  # Log every 10 iterations
-            non_rigid_mode = (k + 1) > 600
+            non_rigid_mode = (k + 1) > 1000
 
             for face_idx in range(num_faces):
                 vertices, landmarks2d, landmarks3d = self.flame(
@@ -360,7 +360,10 @@ if __name__ == '__main__':
     # image_path = str(sys.argv[1])
     # device_name = str(sys.argv[2])
     image_path = 'benchmarks/FAIR_benchmark/validation_set/full_image/ag_face_triplegangers_3_300_000161.png'
-    image_path = 'benchmarks/FAIR_benchmark/validation_set/full_image/ag_face_triplegangers_3_300_000170.png'
+    # image_path = 'benchmarks/FAIR_benchmark/validation_set/full_image/ag_face_triplegangers_3_300_000170.png'
+    # image_path = 'benchmarks/FAIR_benchmark/validation_set/full_image/ag_face_triplegangers_3_300_000059.png'
+    image_path = 'benchmarks/FAIR_benchmark/validation_set/full_image/ag_face_triplegangers_3_300_00005.png'
+
     device_name = 'cuda'
 
     save_name = os.path.split(image_path)[1].split(".")[0]
