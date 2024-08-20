@@ -159,6 +159,7 @@ class LambertianShader(nn.Module):
         if detach_normals:
             normals = normals.detach()
 
+        albedo = sRGB_to_linear(albedo)
         normals_expanded = normals.unsqueeze(1)
         lambertian_per_light = torch.einsum("...i,...i->...", normals_expanded, light_directions).clamp(min=0.0)
         lambertian_colors = lambertian_per_light.unsqueeze(-1) * light_colors
@@ -166,6 +167,26 @@ class LambertianShader(nn.Module):
         shaded_albedo = albedo * lambertian_color_sum
 
         return lambertian_color_sum, shaded_albedo
+
+def sRGB_to_linear(color, clamp=True):
+    """Convert sRGB to linear RGB.
+
+    Args:
+        color: [..., 3]
+
+        Returns:
+            color: [..., 3]
+    """
+
+    color = torch.where(
+        color <= 0.04045,
+        color / 12.92,
+        torch.pow((color + 0.055) / 1.055, 2.4),
+    )
+
+    if clamp:
+        color = torch.clamp(color, 0.0, 1.0)
+    return color
 
 
 class BlinnPhongShader(nn.Module):
