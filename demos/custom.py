@@ -61,8 +61,9 @@ class PhotometricFitting(object):
         latent_codes = nn.Parameter(torch.zeros(bz, cfg.reni_latent_dim_size, 3).float().to(self.device))
 
         albedo_lr = cfg.e_lr * 1 # Learning rate for albedo and pose
-        default_lr = cfg.e_lr * 1.5  # Learning rate for shape, expression, cam
-        latent_lr = cfg.e_lr * 0.125 # Learning rate for latent codes and scale
+        default_lr = cfg.e_lr * 2  # Learning rate for shape, expression, cam
+        latent_lr = cfg.e_lr * 1 # Learning rate for latent codes and scale
+        # latent_lr = cfg.e_lr  # Learning rate for latent codes and scale
 
         e_opt = torch.optim.Adam([
             {'params': [shape, exp, cam], 'lr': default_lr, 'weight_decay': cfg.e_wd, 'initial_lr': default_lr},
@@ -76,9 +77,10 @@ class PhotometricFitting(object):
         rigid_mode = True
 
         phase_settings = [
-            (500, [1.0,     0.0,    0.0]),  # Phase 1: Active: shape, exp, cam; Inactive: pose, tex, latent_codes, scale
+            (1000, [1.0,     0.0,    0.0]),  # Phase 1: Active: shape, exp, cam; Inactive: pose, tex, latent_codes, scale
             (250, [0.0,     1.0,    0.0]),  # Phase 2: Active: pose, tex; Inactive: shape, exp, cam, latent_codes, scale
-            (1500, [1.0,     1.0,    1.0]), # Phase 3: Active: shape, exp, cam, pose, tex, latent_codes, scale
+            (1750, [1.0,     1.0,    1.0]), # Phase 3: Active: shape, exp, cam, pose, tex, latent_codes, scale
+            (9999, [1.0,     1.0,    1.0]),
         ]
 
         s_opt = CustomGroupLR(e_opt, phase_settings)
@@ -99,7 +101,7 @@ class PhotometricFitting(object):
             'scale': [],
         }
 
-        for k in range(cfg.max_iter + 500): # cfg.max_iter
+        for k in range(3000): # cfg.max_iter
             losses = {}
 
             vertices, landmarks2d, landmarks3d = self.flame(shape_params=shape, expression_params=exp, pose_params=pose)
@@ -122,15 +124,21 @@ class PhotometricFitting(object):
                 predicted_illumination = self.reni(rotation=None, latent_codes=latent_codes, scale=scale)
                 # render
                 albedos = self.flametex(tex) / 255.
-                ops = self.render(vertices, trans_vertices, albedos, illumination=predicted_illumination)
+                ops = self.render(vertices, trans_vertices, albedos, illumination=predicted_illumination,
+                                  partial=True)
+                # ops = self.render(vertices, trans_vertices, albedos, illumination=predicted_illumination, partial=False)
                 predicted_images = ops['images']
+                mask = ops['mask']
                 # losses['photometric_texture'] = (image_masks * (ops['images'] - images).abs()).mean() * config.w_pho
 
-                losses['photometric_texture'] = F.smooth_l1_loss(image_masks * ops['images'],
-                                                                image_masks * images) * cfg.w_pho
+                # losses['photometric_texture'] = F.smooth_l1_loss(image_masks * ops['images'],
+                #                                                 image_masks * images) * cfg.w_pho
 
-                losses['exponential'] = latent_codes.pow(2).mean() * 1e-4 * 10
+                losses['photometric_texture'] = F.smooth_l1_loss((image_masks * ops['images']).squeeze(0).permute(1,2,0).reshape(-1,3)[mask],
+                                                                (image_masks * images).squeeze(0).permute(1,2,0).reshape(-1,3)[mask]) * cfg.w_pho
 
+                losses['exponential'] = latent_codes.pow(2).mean() * 1e-4 #* 10
+                # TODO: fixme
             all_loss = 0.
             for key in losses.keys():
                 all_loss = all_loss + losses[key]
@@ -184,7 +192,8 @@ class PhotometricFitting(object):
                 self.writer.add_histogram('Parameters/cam', cam, k)
                 self.writer.add_histogram('Parameters/tex', tex, k)
                 self.writer.add_histogram('Parameters/latent_codes', latent_codes, k)
-                self.writer.add_histogram('Parameters/scale', scale, k)
+                self.writer.add_scalar('Parameters/scale', scale, k)
+                # self.writer.add_histogram('Parameters/scale', scale, k)
 
                 # Log learning rates
                 for i, group in enumerate(e_opt.param_groups):
@@ -207,6 +216,7 @@ class PhotometricFitting(object):
                     illumination_image = F.interpolate(self.reni.visualize_illumination(predicted_illumination).permute(2, 0, 1).unsqueeze(0), size=(224, 224), mode='bilinear', align_corners=False).squeeze(0)
                     grids['illumination'] = torchvision.utils.make_grid(
                         (illumination_image).detach().cpu())
+                    # predicted_images = self.render(vertices, trans_vertices, albedos, illumination=predicted_illumination)['images']
                     grids['render'] = torchvision.utils.make_grid(predicted_images[visind].detach().float().cpu())
                     shape_images = self.render.render_shape(vertices, trans_vertices, images)
                     grids['shape'] = torchvision.utils.make_grid(
@@ -237,7 +247,7 @@ class PhotometricFitting(object):
 
                     video_writer.write(grid_image)
 
-                if k >= 500:
+                if k >= 1000:
                     rigid_mode = False
 
         single_params = {
