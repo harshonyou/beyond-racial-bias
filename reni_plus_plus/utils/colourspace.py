@@ -38,30 +38,16 @@ def linear_to_sRGB(color, use_quantile=False, q: Optional[torch.Tensor] = None, 
         Returns:
             color: [..., 3]
     """
-    # print("Min of color:", color.min())
-    # print("Max of color:", color.max())
-    # print("Any negative values:", (color < 0).any())
-    # print("Any NaNs:", torch.isnan(color).any())
-    # print("Any Infs:", torch.isinf(color).any())
-
-
     if use_quantile or q is not None:
         if q is None:
             q = torch.quantile(color.flatten(), 0.98)
-        # Adding a small epsilon to avoid division by zero or very small numbers
-        color = color / (q.expand_as(color) + 1e-8)
+        color = color / q.expand_as(color)
 
     color = torch.where(
         color <= 0.0031308,
         12.92 * color,
-        1.055 * torch.pow(torch.abs(color) + 1e-8, 1 / 2.4) - 0.055,  # small constant added here
+        1.055 * torch.pow(torch.abs(color), 1 / 2.4) - 0.055,
     )
-
-    if torch.isnan(color).any():
-        print("NaNs detected in color!")
-        # Optionally handle NaNs
-        color = torch.nan_to_num(color)  # Replace NaNs with zeros or another number
-
     if clamp:
         color = torch.clamp(color, 0.0, 1.0)
     return color
