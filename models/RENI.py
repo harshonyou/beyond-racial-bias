@@ -3,6 +3,7 @@ import re
 from pathlib import Path
 import torch
 import yaml
+import numpy as np
 
 from reni_plus_plus.illumination_fields.reni_illumination_field import RENIFieldConfig
 from reni_plus_plus.model_components.illumination_samplers import EquirectangularSamplerConfig
@@ -24,6 +25,7 @@ class RENI:
         self.pixel_num = config.image_size * config.image_size
         self.width = config.reni_env_map_width
         self.sampler = EquirectangularSampler(self.width, False, False, self.pixel_num)
+        self.sine_weight = SineWeightSampler(self.width, self.pixel_num)
 
     def __call__(self, rotation, latent_codes, scale):
         return self.use_model(rotation, latent_codes, scale)
@@ -98,11 +100,12 @@ class RENI:
         # predicted_illumination = linear_to_sRGB(predicted_illumination, use_quantile=True)
 
         # predicted_illumination = predicted_illumination.unsqueeze(0).repeat(self.pixel_num, 1, 1)
-        return predicted_illumination
+        return predicted_illumination * self.sine_weight().squeeze(0)
 
     def to(self, device):
         self.model = self.model.to(device)
         self.sampler = self.sampler.to(device)
+        self.sine_weight = self.sine_weight.to(device)
         return self
 
     def unnormalise(self, tensor):
@@ -111,11 +114,11 @@ class RENI:
     def get_light_directions(self):
         return self.sampler.get_light_directions()
 
-    def visualize_illumination(self, illumination, width=None):
+    def visualize_illumination(self, illumination, use_quantile=True, width=None):
         # return illumination.reshape(self.width // 2, self.width, 3)
 
         # illumination = self.model.unnormalise(illumination)
-        illumination = linear_to_sRGB(illumination, use_quantile=True)
+        illumination = linear_to_sRGB(illumination, use_quantile=use_quantile)
         # illumination = linear_to_sRGB(illumination)
         if width is not None:
             illumination = illumination.reshape(width // 2, width, 3)
@@ -169,6 +172,46 @@ class EquirectangularSampler:
     def to(self, device):
         # self.direction_sampler = self.direction_sampler.to(device)
         self.ray_samples.directions = self.ray_samples.directions.to(device)
+        self.light_directions = self.light_directions.to(device)
         return self
 
 
+class SineWeightSampler:
+    def __init__(self, width, pixel_num=4096):
+        self.width = width
+        self.sineweight = self.generate_sineweight()
+
+        # self.sineweight = self.sineweight.repeat(pixel_num, 1, 1)
+
+    def __call__(self):
+        return self.get_sineweight()
+
+    def generate_sineweight(self):
+        """Generates a matrix of sampling densities using sine weighting."""
+        # Generate u and v coordinates for the equirectangular grid
+        u = (torch.linspace(1, self.width, steps=self.width) - 0.5) / (self.width // 2)
+        v = (torch.linspace(1, self.width // 2, steps=self.width // 2) - 0.5) / (self.width // 2)
+
+        # Create meshgrid for u and v
+        v_grid, u_grid = torch.meshgrid(v, u, indexing="ij")
+        uv = torch.stack((u_grid, v_grid), -1)  # [width/2, width, 2]
+        uv = uv.reshape(-1, 2)  # [width/2*width, 2]
+
+        # Compute the polar angle (phi)
+        phi = np.pi * uv[:, 1]
+
+        # Calculate sine weights
+        sineweight = torch.sin(phi)  # [width/2*width]
+
+        # Reshape and expand dimensions to match desired shape
+        sineweight = sineweight.unsqueeze(1).repeat(1, 3).unsqueeze(0)  # shape=[1, width/2*width, 3]
+
+        return sineweight
+
+    def get_sineweight(self):
+        """Returns the precomputed sine weight matrix."""
+        return self.sineweight
+
+    def to(self, device):
+        self.sineweight = self.sineweight.to(device)
+        return self
