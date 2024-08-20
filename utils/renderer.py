@@ -142,7 +142,7 @@ class Renderer(nn.Module):
 
 
 
-    def forward(self, vertices, transformed_vertices, albedos, lights=None, light_type='point', illumination=None, test=False):
+    def forward(self, vertices, transformed_vertices, albedos, lights=None, light_type='point', illumination=None, partial=False):
         '''
         lihgts:
             spherical homarnic: [N, 9(shcoeff), 3(rgb)]
@@ -178,10 +178,6 @@ class Renderer(nn.Module):
         transformed_normal_map = rendering[:, 3:6, :, :].detach()
         pos_mask = (transformed_normal_map[:, 2:, :, :] < -0.05).float()
 
-        if test:
-            normal_images = rendering[:, 9:12, :, :].detach()
-            return normal_images, albedo_images
-
         # shading
         if lights is not None:
             normal_images = rendering[:, 9:12, :, :].detach()
@@ -209,42 +205,38 @@ class Renderer(nn.Module):
             images = albedo_images * shading_images
         elif illumination is not None:
             normal_images = rendering[:, 9:12, :, :].detach()
-            # albedo_images
-            normal_images = normal_images.cpu()
             normal_images = normal_images.squeeze(0).permute(1, 2, 0) # C, H, W -> H, W, C
             normal_images = normal_images[..., [0,2,1]] # RGB -> BGR
 
-            og_shape = normal_images.shape
 
-            # Clip the values to be between 0 and 1
-            normal_images[normal_images < 0] = 0
-            normal_images[normal_images > 1] = 1
-            # normal_images = normal_images.clip(0, 1)
+            org_shape = normal_images.shape
 
-            normal_images = normal_images / torch.norm(normal_images, dim=2, keepdim=True) # Normalize the vectors
+
+            normal_images = normal_images / torch.norm(normal_images, dim=2, keepdim=True)
 
             mask = ~torch.isnan(normal_images)[..., 0] # Mask out the NaN values
             normal_images[~mask] = 0 # Set the NaN values to 0
 
             mask = mask.reshape(-1) # N = H x W
+            if partial:
+                mask = mask & (torch.rand(mask.shape).to(mask.device) < 0.25)
             normals_subet = normal_images.reshape(-1, 3)[mask] # K x 3
-            del normal_images
 
-            albedo_image = albedo_images.cpu()
-            albedo_image = albedo_image.squeeze(0).permute(1, 2, 0) # C, H, W -> H, W, C
+            albedo_image = albedo_images.squeeze(0).permute(1, 2, 0) # C, H, W -> H, W, C
             albedo_subset = albedo_image.reshape(-1, 3)[mask] # K x 3
-            del albedo_image
 
             light_directions_subset = self.light_directions[mask]
-            illumination = illumination.unsqueeze(0).repeat(normals_subet.shape[0], 1, 1)
 
-            _, predicted_render = self.lambertian_shader(albedo=albedo_subset,
+
+
+            illumination_subset = illumination.unsqueeze(0).repeat(normals_subet.shape[0], 1, 1)
+
+            predicted_sum, predicted_render = self.lambertian_shader(albedo=albedo_subset,
                                         normals=normals_subet,
                                         light_directions=light_directions_subset,
-                                        light_colors=illumination,
+                                        light_colors=illumination_subset,
                                         detach_normals=True)
 
-            del albedo_subset, normals_subet, light_directions_subset, illumination
 
             # images = torch.zeros(og_shape[0] * og_shape[1], 3)
             # images[mask] = predicted_albedo
@@ -254,12 +246,12 @@ class Renderer(nn.Module):
 
             # shading_images = predicted_render
 
-            shading_images = torch.zeros(og_shape[0] * og_shape[1], 3).to(predicted_render.device)
+            shading_images = torch.zeros(org_shape[0] * org_shape[1], 3).to(predicted_render.device)
             shading_images[mask] = predicted_render
-            shading_images = linear_to_sRGB(shading_images.reshape(og_shape[0], og_shape[1], 3), use_quantile=True)
+            shading_images = linear_tonemap(shading_images)
+            shading_images = shading_images.reshape(org_shape[0], org_shape[1], 3)
             shading_images = shading_images.permute(2, 0, 1).unsqueeze(0)
-            shading_images = shading_images.to(albedo_images.device)
-            images = shading_images * albedo_images
+            images = shading_images
 
         else:
             images = albedo_images
@@ -275,6 +267,9 @@ class Renderer(nn.Module):
             'normals': normals,
             'normal_images': rendering[:, 9:12, :, :].detach(),
         }
+
+        if illumination is not None:
+            outputs['mask'] = mask
 
         return outputs
 
@@ -397,3 +392,130 @@ class Renderer(nn.Module):
         '''
         util.save_obj(filename, vertices, self.faces[0], textures=textures, uvcoords=self.raw_uvcoords[0],
                       uvfaces=self.uvfaces[0])
+
+
+
+def is_normalized(tensor):
+    # Reshape to 2D tensor where each row is a 3-element vector
+    reshaped_tensor = tensor.view(-1, 3)
+
+    # Filter out rows where all elements are [0, 0, 0]
+    non_zero_rows = reshaped_tensor[~torch.all(reshaped_tensor == 0, dim=1)]
+
+    # Calculate the norm of each row
+    norms = torch.norm(non_zero_rows, dim=1)
+
+    # Check if all norms are close to 1 (within some tolerance, e.g., 1e-6)
+    is_normalized = torch.allclose(norms, torch.tensor(1.0), atol=1e-6)
+
+    # Output the result
+    return is_normalized
+
+# Tone Mapping using Reinhard Operator
+def reinhard_tone_map(hdr, key=0.18):
+    # Calculate the luminance (assuming RGB, use the Rec. 709 luminance coefficients)
+    luminance = 0.2126 * hdr[:, 0] + 0.7152 * hdr[:, 1] + 0.0722 * hdr[:, 2]
+
+    # Normalize the luminance
+    L_avg = torch.mean(luminance)
+    L_mapped = key * hdr / L_avg
+
+    # Apply the Reinhard tone mapping operator
+    tone_mapped = L_mapped / (1.0 + L_mapped)
+
+    return tone_mapped
+
+# Convert from linear to sRGB
+def linear_to_srgb(linear):
+    srgb = torch.where(
+        linear <= 0.0031308,
+        linear * 12.92,
+        1.055 * torch.pow(linear, 1/2.4) - 0.055
+    )
+    return srgb
+
+def sRGB_to_linear(color, clamp=True):
+    """Convert sRGB to linear RGB.
+
+    Args:
+        color: [..., 3]
+
+        Returns:
+            color: [..., 3]
+    """
+
+    color = torch.where(
+        color <= 0.04045,
+        color / 12.92,
+        torch.pow((color + 0.055) / 1.055, 2.4),
+    )
+
+    if clamp:
+        color = torch.clamp(color, 0.0, 1.0)
+    return color
+
+
+def tumblin_rushmeier_tone_mapping(input_tensor: torch.Tensor, Ld_max=1.0, Lw_max=1.0, k=0.18, delta=1e-6, gamma=2.2):
+    """
+    Apply complete Tumblin-Rushmeier tone mapping to an HDR image tensor with gamma correction.
+
+    Args:
+        input_tensor (torch.Tensor): The input HDR image tensor of shape [N, 3], where N is the number of pixels.
+        Ld_max (float): Maximum display luminance. Default is 1.0.
+        Lw_max (float): Maximum world luminance. Default is 1.0.
+        k (float): Scaling factor. Default is 0.36 to make the image brighter.
+        delta (float): Small constant to avoid logarithm of zero. Default is 1e-6.
+        gamma (float): Gamma correction value. Default is 2.2.
+
+    Returns:
+        torch.Tensor: Tone-mapped LDR image tensor of shape [N, 3].
+    """
+    assert input_tensor.ndimension() == 2 and input_tensor.size(1) == 3, \
+        "Input tensor must be of shape [N, 3] where N is the number of pixels and 3 represents RGB channels."
+
+    # Convert RGB to luminance using standard luminance coefficients
+    luminance_coefficients = torch.tensor([0.2126, 0.7152, 0.0722], device=input_tensor.device)
+    Lw = torch.sum(input_tensor * luminance_coefficients, dim=1, keepdim=True)
+
+    # Calculate the adaptation luminance (logarithmic average luminance)
+    log_mean_luminance = torch.exp(torch.mean(torch.log(Lw + delta)))
+
+    # Scale the luminance using the Tumblin-Rushmeier formula
+    Ld = k * (Ld_max / Lw_max) * (Lw / log_mean_luminance)
+
+    # Normalize the RGB values by the scaled luminance
+    Lw_normalized = Ld / (Lw + delta)  # Adding delta to avoid division by zero
+    output_tensor = input_tensor * Lw_normalized
+
+    # Apply gamma correction to brighten the image
+    output_tensor = torch.clamp(output_tensor, 0.0, 1.0)
+    output_tensor = torch.pow(output_tensor, 1.0 / gamma)
+
+    return output_tensor
+
+
+def linear_tonemap(hdr_pixels, gamma=2.2):
+    # Ensure the tensor is in the correct format
+    assert hdr_pixels.ndimension() == 2 and hdr_pixels.size(1) == 3, "Input tensor must be of shape [N, 3] where N is the number of pixels and 3 represents RGB channels."
+
+    # Convert HDR pixels to float32 if they aren't already
+    if hdr_pixels.dtype != torch.float32:
+        hdr_pixels = hdr_pixels.float()
+
+    # Find the minimum and maximum values in the pixels
+    min_val = hdr_pixels.min()
+    max_val = hdr_pixels.max()
+
+    # Normalize the pixels to the [0, 1] range
+    ldr_pixels = (hdr_pixels - min_val) / (max_val - min_val + 1e-5)  # Adding a small epsilon to avoid division by zero
+
+    # Clamp values to avoid zero or negative values before gamma correction
+    ldr_pixels = torch.clamp(ldr_pixels, min=1e-5)  # Clamping to a small positive value
+
+    # Apply gamma correction
+    ldr_pixels = torch.pow(ldr_pixels, 1.0 / gamma)
+
+    # Clamp the output to the [0, 1] range
+    ldr_pixels = torch.clamp(ldr_pixels, 0.0, 1.0)
+
+    return ldr_pixels
