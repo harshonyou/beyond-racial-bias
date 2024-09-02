@@ -168,24 +168,32 @@ class LambertianShader(nn.Module):
 
         return lambertian_color_sum, shaded_albedo
 
-def sRGB_to_linear(color, clamp=True):
+def sRGB_to_linear(color, clamp=True, epsilon=1e-5):
     """Convert sRGB to linear RGB.
 
     Args:
         color: [..., 3]
+        clamp: Whether to clamp the output to [0, 1].
+        epsilon: Small value to prevent NaNs during power operation.
 
-        Returns:
-            color: [..., 3]
+    Returns:
+        color: [..., 3] in linear space.
     """
 
+    # Clamp color before processing to ensure no negative values or values too close to zero
+    color = torch.clamp(color, 0.0, 1.0)
+
+    # Apply the transformation
     color = torch.where(
         color <= 0.04045,
         color / 12.92,
-        torch.pow((color + 0.055) / 1.055, 2.4),
+        torch.pow(torch.clamp((color + 0.055) / 1.055, min=epsilon), 2.4)
     )
 
+    # Optional clamping of the result
     if clamp:
         color = torch.clamp(color, 0.0, 1.0)
+
     return color
 
 
