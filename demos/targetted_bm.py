@@ -139,6 +139,7 @@ def parse_arguments():
     parser.add_argument('--device_name', type=str, default="cuda", help="Device name (e.g., 'cuda' or 'cpu').")
     parser.add_argument('--mask_path', type=str, default="benchmarks/FAIR_benchmark/validation_set/skin_for_ita_mask_cheeks.png", help="Path to the mask image for ITA calculation.")
     parser.add_argument('--batch_size', type=int, default=1, help="Number of images to process in this batch.")
+    parser.add_argument('--skip', type=int, default=0, help="Number of images to skip before processing.")
 
     # Parse arguments
     args = parser.parse_args()
@@ -155,8 +156,8 @@ if __name__ == '__main__':
     device_name = args.device_name
     mask_path = args.mask_path
     batch_size = args.batch_size
-    output_path = os.path.join(save_folder, 'test_output_files')
-    csv_path = os.path.join(save_folder, 'test_log.csv')
+    output_path = os.path.join(save_folder, '__test_output_files')
+    csv_path = os.path.join(save_folder, '__test_log.csv')
 
     # Initialize the tqdm progress bar
     progress_bar = tqdm(total=batch_size, desc="Processing Images")
@@ -173,9 +174,15 @@ if __name__ == '__main__':
 
     # Initialize a counter for processed images
     processed_images = 0
+    skip_images = args.skip
 
     # Process each image in the benchmark directory
-    for item in os.listdir(benchmark_root):
+    for item in sorted(os.listdir(benchmark_root)):
+        if skip_images > 0:
+            print(f"Skipping image: {item}")
+            skip_images -= 1
+            continue
+
         item_path = os.path.join(benchmark_root, item)
         if not os.path.isdir(item_path):
             continue
